@@ -1,0 +1,6 @@
+.env
+__pycache__/
+faiss.index
+metadata.json
+seen_hashes.json
+arxiv_papers_raw.json
