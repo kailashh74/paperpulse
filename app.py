@@ -39,6 +39,13 @@ html,body,[class*="css"]{font-family:var(--mono);background:var(--bg)!important;
 .pp-page-title{font-family:var(--display);font-size:2rem;font-weight:800;color:var(--text);
     letter-spacing:-0.04em;line-height:1.1;margin-bottom:6px;}
 .pp-page-sub{font-size:0.75rem;color:var(--muted);margin-bottom:32px;}
+[data-testid="stChatInput"]{
+    position:fixed!important;bottom:0!important;
+    width:100%!important;max-width:100%!important;
+    background:var(--bg)!important;padding:16px 48px!important;z-index:999!important;
+    border-top:1px solid var(--border)!important;
+    margin:0!important;
+}
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]){
     background:var(--bg1)!important;border:1px solid var(--border)!important;border-radius:8px!important;padding:14px 18px!important;margin-bottom:6px!important;}
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]){
@@ -47,6 +54,8 @@ html,body,[class*="css"]{font-family:var(--mono);background:var(--bg)!important;
 [data-testid="stChatInput"] textarea{background:var(--bg1)!important;border:1px solid var(--border2)!important;
     border-radius:8px!important;color:var(--text)!important;font-family:var(--mono)!important;font-size:0.85rem!important;padding:14px 18px!important;}
 [data-testid="stChatInput"] textarea:focus{border-color:rgba(0,212,255,0.35)!important;box-shadow:0 0 0 3px rgba(0,212,255,0.06)!important;}
+.chat-bottom-spacer{height:140px;}
+.pp-main{padding-bottom:120px!important;}
 .conf-wrap{margin:10px 0 4px;display:flex;align-items:center;gap:12px;}
 .conf-track{flex:1;height:2px;background:var(--border2);border-radius:2px;overflow:hidden;}
 .conf-fill{height:100%;border-radius:2px;}
@@ -80,13 +89,17 @@ html,body,[class*="css"]{font-family:var(--mono);background:var(--bg)!important;
     letter-spacing:0.1em!important;text-transform:uppercase!important;color:var(--muted)!important;}
 [data-testid="stMetricValue"]{font-family:var(--mono)!important;font-size:1.8rem!important;
     font-weight:500!important;color:var(--cyan)!important;letter-spacing:-0.03em!important;}
-/* FIX: style st.button tabs to look like nav tabs */
 .tab-row {display:flex;gap:2px;margin-bottom:0;}
 .stButton button{background:var(--bg2)!important;border:1px solid var(--border2)!important;
     border-radius:6px!important;color:var(--muted)!important;font-family:var(--mono)!important;
     font-size:0.7rem!important;letter-spacing:0.05em!important;padding:8px 16px!important;
     text-transform:uppercase!important;transition:all 0.15s!important;width:auto!important;}
 .stButton button:hover{border-color:var(--cyan)!important;color:var(--cyan)!important;background:var(--cyan-dim)!important;}
+.stButton button[kind="primary"]{
+    background:var(--cyan-dim)!important;border:1px solid var(--cyan)!important;
+    color:var(--cyan)!important;
+}
+.stButton button[kind="primary"]:hover{background:rgba(0,212,255,0.15)!important;}
 section[data-testid="stSidebar"]{display:none!important;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
 .fade-1{animation:fadeUp 0.4s ease both;}
@@ -130,7 +143,7 @@ def load_retriever():
 
 retriever = load_retriever()
 
-# FIX: include digest_html in session state defaults
+# FIX: added pending_query — used by the Pulse tab handoff below
 for key, val in [("messages",[]),("active_tab","ask"),("answer_mode","technical"),
                   ("reading_list",[]),("last_update",datetime.now()),
                   ("digest_html",""),("digest_count",0),("pending_query",None)]:
@@ -173,23 +186,20 @@ left, right = st.columns([1, 3.2], gap="large")
 
 # ── Sidebar ───────────────────────────────────────────────────
 with left:
-    # FIX: tabs as st.button so session_state persists across clicks
     st.markdown('<div class="pp-section">Navigation</div>', unsafe_allow_html=True)
     t1, t2, t3 = st.columns(3)
     with t1:
-        if st.button("◈ Digest"):
+        if st.button("◈ Digest", type="primary" if tab=="digest" else "secondary"):
             st.session_state.active_tab = "digest"
             st.rerun()
     with t2:
-        if st.button("◎ Ask"):
+        if st.button("◎ Ask", type="primary" if tab=="ask" else "secondary"):
             st.session_state.active_tab = "ask"
             st.rerun()
     with t3:
-        if st.button("▸ Pulse"):
+        if st.button("▸ Pulse", type="primary" if tab=="pulse" else "secondary"):
             st.session_state.active_tab = "pulse"
             st.rerun()
-
-    st.markdown(f'<div style="font-size:0.6rem;color:var(--cyan);margin-bottom:8px">▸ {tab.upper()}</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="pp-section">Index</div>', unsafe_allow_html=True)
     c1, c2 = st.columns(2)
@@ -338,13 +348,11 @@ Generate 6 digests:"""
                     rendered += 1
 
                 if rendered > 0:
-                    # FIX: store in session_state — survives reruns
                     st.session_state.digest_html = all_cards
                     st.session_state.digest_count = rendered
                 else:
                     st.warning("Parsing failed. Try again.")
 
-        # FIX: always render from session_state
         if st.session_state.digest_html:
             st.markdown(st.session_state.digest_html, unsafe_allow_html=True)
             st.caption(f"{st.session_state.digest_count} papers · arXiv index")
@@ -380,8 +388,6 @@ Generate 6 digests:"""
                     tier = msg.get("tier","index")
                     raw_sem = msg.get("raw_sem", None)
 
-                    # FIX: honest confidence — use raw semantic similarity floor
-                    # if best semantic score is below 0.3, cap at Low regardless of RRF
                     if raw_sem is not None and raw_sem < 0.3:
                         conf = min(conf, 0.3)
 
@@ -408,18 +414,24 @@ Generate 6 digests:"""
                                 try: date_str = datetime.strptime(ts,"%Y-%m-%d").strftime("%b %d, %Y")
                                 except: date_str = ts or "—"
                                 if url:
-                                    st.markdown(f'<a class="src-tag" href="{url}" target="_blank">↗ arXiv · {date_str} · {authors[:25]} · rrf:{score:.2f} · sem:{sem:.2f}</a>', unsafe_allow_html=True)
+                                    relevance = max(score, sem) * 100
+                                    st.markdown(f'<a class="src-tag" href="{url}" target="_blank">↗ arXiv · {date_str} · {authors[:25]} · {relevance:.0f}% match</a>', unsafe_allow_html=True)
 
                     if msg.get("sources"):
                         srcs = [s for s in msg["sources"] if s.get("url")]
-                        if srcs and st.button("+ Save to reading list", key=f"rl_{id(msg)}"):
-                            for s in srcs[:2]:
-                                e = {"title":s.get("title",""),"url":s.get("url","")}
-                                if e not in st.session_state.reading_list:
-                                    st.session_state.reading_list.append(e)
-                            st.toast("Saved to reading list")
+                        if srcs:
+                            msg_idx = st.session_state.messages.index(msg) if msg in st.session_state.messages else 0
+                            stable_key = f"rl_{msg_idx}_{hash(msg.get('content',''))%100000}"
+                            if st.button("+ Save to reading list", key=stable_key):
+                                for s in srcs[:2]:
+                                    e = {"title":s.get("title",""),"url":s.get("url","")}
+                                    if e not in st.session_state.reading_list:
+                                        st.session_state.reading_list.append(e)
+                                st.toast("Saved to reading list")
 
-        # FIX: pull a pending query from Pulse tab handoff, same as typed input
+        # FIX: pull a pending query set by the Pulse tab handoff and route it
+        # through the exact same pipeline as a typed question — same retrieval,
+        # same off-topic guard, same prompt, same response style.
         pending = st.session_state.pending_query
         st.session_state.pending_query = None
         typed = st.chat_input("Ask about AI research...")
@@ -431,9 +443,11 @@ Generate 6 digests:"""
                 st.markdown(query)
 
             with st.chat_message("assistant"):
-                # FIX: detect follow-up intent — short queries with no topical
-                # content of their own ("explain simpler", "tell me more", etc)
-                # should reuse the previous turn's sources, not re-retrieve blind.
+                # FIX: follow-up detection was dropped in an earlier merge.
+                # Short queries like "explain simpler" or "tell me more" have
+                # no topical content of their own — re-retrieving on them
+                # blind pulls random unrelated papers. Reuse the previous
+                # turn's actual sources instead.
                 FOLLOWUP_PHRASES = [
                     "explain", "simpler", "simple terms", "elaborate", "more detail",
                     "tell me more", "go on", "continue", "what do you mean",
@@ -449,14 +463,12 @@ Generate 6 digests:"""
 
                 prev_chunks = None
                 if is_followup:
-                    # find the most recent assistant message with sources
                     for m in reversed(st.session_state.messages[:-1]):
                         if m["role"] == "assistant" and m.get("sources"):
                             prev_chunks = m["sources"]
                             break
 
                 if is_followup and prev_chunks:
-                    # FIX: reuse previous sources — don't re-retrieve on vague follow-ups
                     chunks = prev_chunks
                     top_score = chunks[0]["score"] if chunks else 0.0
                     raw_sem_score = chunks[0].get("sem_score", 0.0) if chunks else 0.0
@@ -467,7 +479,13 @@ Generate 6 digests:"""
                     raw_sem_score = chunks[0].get("sem_score", 0.0) if chunks else 0.0
                     tier_used = "index"
 
-                    if top_score < 0.40 or raw_sem_score < 0.25:
+                # FIX: Tier 2 fallback only runs for fresh retrieval, never
+                # for a reused follow-up — otherwise live search would
+                # override the previous answer's sources we just restored.
+                if not (is_followup and prev_chunks):
+                    print(f"[Tier check] top_score={top_score:.3f} raw_sem={raw_sem_score:.3f}")
+                    if top_score < 0.40 or raw_sem_score < 0.35:
+                        print(f"[Tier2] Triggering Semantic Scholar fallback for: {query}")
                         try:
                             from fetchers import fetch_semantic_scholar
                             live = fetch_semantic_scholar(query, max_results=top_k)
@@ -481,13 +499,15 @@ Generate 6 digests:"""
                                 top_score = chunks[0]["score"]
                                 raw_sem_score = top_score
                                 tier_used = "scholar"
+                                print(f"[Tier2] Got {len(live)} live results, top tier=scholar")
+                            else:
+                                print("[Tier2] Semantic Scholar returned 0 results, staying on index tier")
                         except Exception as e:
-                            print(f"[Tier2] {e}")
+                            print(f"[Tier2] Exception: {e}")
 
                 if not chunks:
                     tier_used = "none"
 
-                # FIX: honest confidence — cap if semantic similarity is weak
                 display_conf = top_score
                 if raw_sem_score < 0.3:
                     display_conf = min(display_conf, 0.3)
@@ -509,13 +529,18 @@ Generate 6 digests:"""
                 }[tier_used]
 
                 history = [{"role":m["role"],"content":m["content"]} for m in st.session_state.messages[-4:] if m["role"] in ["user","assistant"]]
-                SYSTEM_PROMPT = """You are PaperPulse — an expert AI/ML research assistant grounded in arXiv papers.
+                history.append({"role":"user","content":f"""You are PaperPulse — an expert AI research assistant.
 
-HARD RULE: If the question is about product recommendations, hardware purchasing advice (laptops, GPUs to buy, phones, etc), general consumer tech, or anything that is not an AI/ML research topic, you MUST respond with exactly: "I'm built to answer AI/ML research questions, not [topic]. Try asking me about a specific paper, method, or research area instead." Do NOT use the retrieved context to answer off-topic questions even if it loosely mentions hardware or products. Do NOT invent product specifications or recommendations under any circumstances.
+If the question is about product recommendations, hardware purchasing advice (laptops, GPUs, phones, etc), or general consumer tech rather than AI/ML research, respond only with: "I'm built to answer AI/ML research questions, not {{topic}}. Try asking me about a specific paper, method, or research area instead." Do not use the retrieved context to answer such questions.
 
-For genuine AI/ML research questions: answer from the retrieved context below. Cite paper titles and authors. If the retrieved context is weak or irrelevant to the question, say so honestly rather than stretching unrelated papers to fit."""
+{tier_inst}
+{mode_inst}
 
-                history.append({"role":"user","content":f"{SYSTEM_PROMPT}\n\n{tier_inst}\n{mode_inst}\n\nContext:\n{context}\n\nQuestion: {query}\nAnswer:"})
+Context:
+{context}
+
+Question: {query}
+Answer:"""})
 
                 placeholder = st.empty()
                 full_response = ""
@@ -555,13 +580,19 @@ For genuine AI/ML research questions: answer from the retrieved context below. C
                             try: date_str = datetime.strptime(ts,"%Y-%m-%d").strftime("%b %d, %Y")
                             except: date_str = ts or "—"
                             if url:
-                                st.markdown(f'<a class="src-tag" href="{url}" target="_blank">↗ arXiv · {date_str} · {authors[:25]} · rrf:{score:.2f} · sem:{sem:.2f}</a>', unsafe_allow_html=True)
+                                relevance = max(score, sem) * 100
+                                st.markdown(f'<a class="src-tag" href="{url}" target="_blank">↗ arXiv · {date_str} · {authors[:25]} · {relevance:.0f}% match</a>', unsafe_allow_html=True)
 
             st.session_state.messages.append({
                 "role":"assistant","content":full_response,
                 "sources":chunks,"confidence":float(display_conf),
                 "raw_sem":float(raw_sem_score),"tier":tier_used
             })
+
+        # FIX: spacer placed AFTER everything renders (history + live answer)
+        # so the fixed-position input bar never overlaps the confidence bar
+        # or sources of the most recent message.
+        st.markdown('<div class="chat-bottom-spacer"></div>', unsafe_allow_html=True)
 
     # ════════════════════════════════════════
     # PULSE
@@ -595,7 +626,6 @@ For genuine AI/ML research questions: answer from the retrieved context below. C
         max_c = max(counts.values()) if counts and max(counts.values()) > 0 else 1
         sorted_topics = sorted(counts.items(), key=lambda x: x[1], reverse=True)
 
-        # FIX: one HTML block
         all_rows = ""
         for topic, count in sorted_topics:
             pct = count / max_c * 100
@@ -609,11 +639,12 @@ For genuine AI/ML research questions: answer from the retrieved context below. C
 
         st.markdown("<div style='margin-top:32px'>", unsafe_allow_html=True)
         topic_choice = st.selectbox("Explore topic", [t for t,_ in sorted_topics], label_visibility="collapsed")
-        if st.button("▸  Ask about this topic"):
+        if st.button("▸  Ask about this topic", key="pulse_ask_btn"):
             st.session_state.active_tab = "ask"
             # FIX: was appending a user message directly with no answer pipeline
-            # ever running on it. Now sets a pending flag that the Ask tab
-            # picks up and runs through the normal retrieve+answer flow.
+            # ever running on it — the question just sat there unanswered.
+            # Now sets a pending flag the Ask tab picks up and runs through
+            # the SAME retrieve+answer flow as a typed question.
             st.session_state.pending_query = f"What are the latest developments in {topic_choice}? Summarize key recent papers."
             st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
